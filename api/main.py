@@ -6,14 +6,21 @@ import os
 import sys
 import time
 
-import numpy as np
 import redis
 from confluent_kafka import Producer, KafkaException
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 # Add recommendation_engine to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "recommendation_engine"))
+# In Docker: mounted at /app/recommendation_engine; locally: ../recommendation_engine
+_rec_engine_paths = [
+    os.path.join(os.path.dirname(__file__), "recommendation_engine"),
+    os.path.join(os.path.dirname(__file__), "..", "recommendation_engine"),
+]
+for _p in _rec_engine_paths:
+    if os.path.isdir(_p):
+        sys.path.insert(0, _p)
+        break
 from model import RecommendationModel
 
 from schemas import (

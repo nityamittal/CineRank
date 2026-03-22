@@ -65,7 +65,7 @@ services:
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U recuser -d recdb"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-recuser} -d ${POSTGRES_DB:-recdb}"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -112,12 +112,36 @@ services:
         condition: service_healthy
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_TOPIC: user_events
       REDIS_HOST: redis
       REDIS_PORT: 6379
       MOVIES_PATH: /data/ml-32m/movies.csv
     volumes:
       - ./ml-32m:/data/ml-32m:ro
     restart: on-failure
+
+  recommendation-engine:
+    build:
+      context: ./recommendation_engine
+    container_name: cinerank-rec-engine
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-recdb}
+      POSTGRES_USER: ${POSTGRES_USER:-recuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-recpass}
+    volumes:
+      - model-data:/app/models
+      - ./ml-32m:/data/ml-32m:ro
+    command: ["python", "train_model.py", "--csv-path", "/data/ml-32m/ratings.csv", "--movies-path", "/data/ml-32m/movies.csv", "--output-dir", "/app/models", "--max-ratings", "1000000"]
+    restart: "no"
 
   api:
     build:
@@ -128,6 +152,8 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     ports:
       - "8000:8000"
     environment:

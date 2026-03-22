@@ -3,12 +3,11 @@
 import json
 import sys
 import os
-from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Add project paths
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "api"))
+# Add project root and module paths so both `api.main` and `recommendation_engine` resolve
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "recommendation_engine"))
 
 

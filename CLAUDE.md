@@ -26,7 +26,7 @@ PostgreSQL stores user profiles, movie metadata, and historical interactions.
 | ML / Recs          | scikit-learn, scipy, Faiss    |
 | Database           | PostgreSQL                    |
 | Deployment         | Docker + Docker Compose       |
-| Dataset            | MovieLens 25M (free download) |
+| Dataset            | MovieLens 32M (already downloaded in ml-32m/) |
 
 ## Project Structure
 
@@ -39,8 +39,13 @@ cinerank/
 ├── README.md                        # Project documentation
 │
 ├── data/
-│   ├── download_dataset.sh          # Downloads MovieLens dataset
 │   └── sample_events.json           # Small test payload
+│
+├── ml-32m/                          # MovieLens 32M dataset (already present, gitignored)
+│   ├── ratings.csv
+│   ├── movies.csv
+│   ├── tags.csv
+│   └── links.csv
 │
 ├── kafka_producer/
 │   ├── Dockerfile
@@ -70,7 +75,7 @@ cinerank/
 │
 ├── scripts/
 │   ├── init_kafka_topics.sh         # Create Kafka topics
-│   ├── seed_postgres.sh             # Load MovieLens into PostgreSQL
+│   ├── seed_postgres.py              # Load MovieLens into PostgreSQL
 │   └── seed_redis.py                # Optional: preload Redis cache
 │
 └── tests/
@@ -149,24 +154,21 @@ echo "Kafka topics created."
 
 ---
 
-### Phase 2: Dataset Download & Seeding
+### Phase 2: Dataset & Seeding
 
-Create `data/download_dataset.sh`:
-```bash
-#!/bin/bash
-cd "$(dirname "$0")"
-if [ ! -f ml-25m/ratings.csv ]; then
-    echo "Downloading MovieLens 25M dataset..."
-    wget -q https://files.grouplens.org/datasets/movielens/ml-25m.zip
-    unzip -q ml-25m.zip
-    rm ml-25m.zip
-    echo "Done."
-else
-    echo "Dataset already exists."
-fi
-```
+The MovieLens 32M dataset already exists at `ml-32m/` in the project root with:
+- `ratings.csv` — 32M ratings from 200,948 users across 87,585 movies
+- `movies.csv` — movie titles and pipe-separated genres
+- `tags.csv` — 2M user-generated tags
+- `links.csv` — IMDb and TMDb IDs
 
-Create `scripts/seed_postgres.sh` — reads `movies.csv` and `ratings.csv`, bulk-inserts into PostgreSQL using `\copy` or a Python script with psycopg2. Load a subset (first 1M ratings) for dev mode.
+**Do NOT create a download script.** The data is already present.
+
+Add `ml-32m/` to `.gitignore`.
+
+Create `scripts/seed_postgres.py` — reads `ml-32m/movies.csv` and `ml-32m/ratings.csv`, bulk-inserts into PostgreSQL using psycopg2. Load a subset (first 1M ratings) for dev mode. See `data/CLAUDE.md` for full spec.
+
+Create `data/sample_events.json` with 10 hand-crafted test events.
 
 **Verify:** After seeding, `SELECT COUNT(*) FROM interactions;` returns rows.
 
@@ -392,7 +394,7 @@ Write a comprehensive README with:
 6. **System Design** — scalability, fault tolerance, performance targets
 7. **Tech stack table**
 8. **Extensions** — A/B testing, Grafana dashboard, embeddings
-9. **Resume bullet** — "Built CineRank, a real-time movie recommendation system using Kafka, Redis, and FastAPI that processes streaming user activity from MovieLens 25M and serves low-latency personalized recommendations using a fully open-source stack."
+9. **Resume bullet** — "Built CineRank, a real-time movie recommendation system using Kafka, Redis, and FastAPI that processes streaming user activity from MovieLens 32M and serves low-latency personalized recommendations using a fully open-source stack."
 
 ---
 
@@ -417,4 +419,4 @@ Write a comprehensive README with:
 - **Faust over Flink**: Faust is pure Python, much simpler to set up locally than a JVM-based Flink cluster. For a portfolio project, this keeps the barrier to entry low while demonstrating the same streaming concepts.
 - **SVD over deep learning**: TruncatedSVD is fast, interpretable, and works well on MovieLens. No GPU needed.
 - **Redis as both feature store and rec cache**: Simplifies the architecture. In production you might separate these.
-- **MovieLens 25M**: Large enough to be realistic, small enough to train locally in minutes.
+- **MovieLens 32M**: Large enough to be realistic, small enough to train locally in minutes.
