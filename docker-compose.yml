@@ -1,6 +1,8 @@
 version: "3.8"
 
 services:
+  # ── Infrastructure ──────────────────────────────────────────────
+
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
     container_name: cinerank-zookeeper
@@ -68,6 +70,82 @@ services:
       timeout: 3s
       retries: 5
 
+  # ── Application Services ────────────────────────────────────────
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: cinerank-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command: |
+      "
+      kafka-topics --create --if-not-exists --topic user_events --bootstrap-server kafka:29092 --partitions 3 --replication-factor 1
+      kafka-topics --create --if-not-exists --topic processed_features --bootstrap-server kafka:29092 --partitions 3 --replication-factor 1
+      echo 'Topics created successfully.'
+      "
+    restart: "no"
+
+  producer:
+    build:
+      context: ./kafka_producer
+    container_name: cinerank-producer
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      DATA_PATH: /data/ml-32m/ratings.csv
+    volumes:
+      - ./ml-32m:/data/ml-32m:ro
+    restart: on-failure
+
+  processor:
+    build:
+      context: ./stream_processor
+    container_name: cinerank-processor
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MOVIES_PATH: /data/ml-32m/movies.csv
+    volumes:
+      - ./ml-32m:/data/ml-32m:ro
+    restart: on-failure
+
+  api:
+    build:
+      context: ./api
+    container_name: cinerank-api
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-recdb}
+      POSTGRES_USER: ${POSTGRES_USER:-recuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-recpass}
+      MODEL_DIR: /app/models
+    volumes:
+      - model-data:/app/models
+      - ./recommendation_engine:/app/recommendation_engine:ro
+    restart: on-failure
+
 volumes:
   redis-data:
   postgres-data:
+  model-data:
