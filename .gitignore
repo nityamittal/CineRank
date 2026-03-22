@@ -1,0 +1,10 @@
+ml-32m/
+models/
+__pycache__/
+*.pyc
+.env
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+*.npy
