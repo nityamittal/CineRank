@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import time
 
 import numpy as np
 import redis
@@ -26,17 +27,35 @@ class RecommendationModel:
         redis_client: Optional Redis client for caching.
     """
 
-    def __init__(self, model_dir: str = "./models", redis_client: redis.Redis | None = None) -> None:
+    def __init__(
+        self,
+        model_dir: str = "./models",
+        redis_client: redis.Redis | None = None,
+        reload_cooldown_s: float = 10.0,
+    ) -> None:
         """Load model artifacts from disk.
+
+        If the artifacts do not exist yet (e.g. training is still running),
+        the model starts empty and `ensure_loaded()` retries loading later,
+        so a long-lived API process picks the model up automatically once
+        training completes — no restart needed.
 
         Args:
             model_dir: Directory containing model files.
             redis_client: Optional Redis client for cache lookups.
+            reload_cooldown_s: Minimum seconds between reload attempts.
         """
         self.model_dir = model_dir
         self.redis_client = redis_client
         self.loaded = False
+        self.reload_cooldown_s = reload_cooldown_s
+        self._last_load_attempt = 0.0
+        self._load()
 
+    def _load(self) -> None:
+        """Attempt to load model artifacts from disk, once."""
+        self._last_load_attempt = time.monotonic()
+        model_dir = self.model_dir
         try:
             self.user_factors = np.load(os.path.join(model_dir, "user_factors.npy"))
             self.item_factors = np.load(os.path.join(model_dir, "item_factors.npy"))
@@ -81,6 +100,19 @@ class RecommendationModel:
         self.movie_titles = {}
         self.metadata = {}
 
+    def ensure_loaded(self) -> bool:
+        """Return True if the model is loaded, retrying disk if it is not.
+
+        Reload attempts are throttled to one per `reload_cooldown_s` so a
+        request storm against an untrained model does not hammer the disk.
+        """
+        if self.loaded:
+            return True
+        if time.monotonic() - self._last_load_attempt >= self.reload_cooldown_s:
+            logger.info("Model not loaded yet — re-checking %s", self.model_dir)
+            self._load()
+        return self.loaded
+
     def get_recommendations(
         self,
         user_id: int,
@@ -102,6 +134,8 @@ class RecommendationModel:
         Returns:
             List of dicts with movie_id, title, score, genres.
         """
+        self.ensure_loaded()
+
         # 1. Check Redis cache
         if self.redis_client:
             try:
@@ -179,6 +213,8 @@ class RecommendationModel:
         Returns:
             List of dicts with movie_id, title, score, genres.
         """
+        self.ensure_loaded()
+
         if movie_id not in self.item_map:
             return []
 
@@ -219,7 +255,7 @@ class RecommendationModel:
         Returns:
             List of dicts with movie_id, title, score, genres.
         """
-        if not self.loaded or self.item_factors.size == 0:
+        if not self.ensure_loaded() or self.item_factors.size == 0:
             return []
 
         norms = np.linalg.norm(self.item_factors, axis=1)

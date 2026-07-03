@@ -11,50 +11,54 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "recommendation_engine"))
 
 
+def write_test_artifacts(tmpdir: str) -> None:
+    """Write a small, deterministic set of model artifacts into tmpdir."""
+    n_users, n_items, n_components = 10, 20, 5
+
+    # Create random but deterministic factors
+    rng = np.random.RandomState(42)
+    user_factors = rng.randn(n_users, n_components).astype(np.float32)
+    item_factors = rng.randn(n_items, n_components).astype(np.float32)
+
+    np.save(os.path.join(tmpdir, "user_factors.npy"), user_factors)
+    np.save(os.path.join(tmpdir, "item_factors.npy"), item_factors)
+
+    user_map = {str(i + 1): i for i in range(n_users)}
+    item_map = {str((i + 1) * 10): i for i in range(n_items)}
+
+    with open(os.path.join(tmpdir, "user_map.json"), "w") as f:
+        json.dump(user_map, f)
+    with open(os.path.join(tmpdir, "item_map.json"), "w") as f:
+        json.dump(item_map, f)
+
+    movie_titles = {}
+    genres_list = ["Action", "Comedy", "Drama", "Sci-Fi", "Thriller"]
+    for i in range(n_items):
+        mid = (i + 1) * 10
+        movie_titles[str(mid)] = {
+            "title": f"Test Movie {mid}",
+            "genres": genres_list[i % len(genres_list)],
+        }
+
+    with open(os.path.join(tmpdir, "movie_titles.json"), "w") as f:
+        json.dump(movie_titles, f)
+
+    metadata = {
+        "n_users": n_users,
+        "n_items": n_items,
+        "n_components": n_components,
+        "explained_variance": 0.42,
+        "trained_at": "2026-01-01T00:00:00",
+    }
+    with open(os.path.join(tmpdir, "model_metadata.json"), "w") as f:
+        json.dump(metadata, f)
+
+
 @pytest.fixture
 def model_dir():
     """Create a temporary model directory with test artifacts."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        n_users, n_items, n_components = 10, 20, 5
-
-        # Create random but deterministic factors
-        rng = np.random.RandomState(42)
-        user_factors = rng.randn(n_users, n_components).astype(np.float32)
-        item_factors = rng.randn(n_items, n_components).astype(np.float32)
-
-        np.save(os.path.join(tmpdir, "user_factors.npy"), user_factors)
-        np.save(os.path.join(tmpdir, "item_factors.npy"), item_factors)
-
-        user_map = {str(i + 1): i for i in range(n_users)}
-        item_map = {str((i + 1) * 10): i for i in range(n_items)}
-
-        with open(os.path.join(tmpdir, "user_map.json"), "w") as f:
-            json.dump(user_map, f)
-        with open(os.path.join(tmpdir, "item_map.json"), "w") as f:
-            json.dump(item_map, f)
-
-        movie_titles = {}
-        genres_list = ["Action", "Comedy", "Drama", "Sci-Fi", "Thriller"]
-        for i in range(n_items):
-            mid = (i + 1) * 10
-            movie_titles[str(mid)] = {
-                "title": f"Test Movie {mid}",
-                "genres": genres_list[i % len(genres_list)],
-            }
-
-        with open(os.path.join(tmpdir, "movie_titles.json"), "w") as f:
-            json.dump(movie_titles, f)
-
-        metadata = {
-            "n_users": n_users,
-            "n_items": n_items,
-            "n_components": n_components,
-            "explained_variance": 0.42,
-            "trained_at": "2026-01-01T00:00:00",
-        }
-        with open(os.path.join(tmpdir, "model_metadata.json"), "w") as f:
-            json.dump(metadata, f)
-
+        write_test_artifacts(tmpdir)
         yield tmpdir
 
 
@@ -74,6 +78,28 @@ def test_model_loads_missing_dir() -> None:
     from model import RecommendationModel
     m = RecommendationModel(model_dir="/nonexistent/path")
     assert m.loaded is False
+
+
+def test_model_reloads_when_artifacts_appear() -> None:
+    """A model that started empty picks up artifacts written later.
+
+    This simulates the API starting before training has finished: the model
+    loads empty, training completes, and ensure_loaded() recovers without a
+    process restart.
+    """
+    from model import RecommendationModel
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        m = RecommendationModel(model_dir=tmpdir, reload_cooldown_s=0.0)
+        assert m.loaded is False
+        assert m.ensure_loaded() is False
+
+        write_test_artifacts(tmpdir)
+
+        assert m.ensure_loaded() is True
+        assert m.loaded is True
+        recs = m.get_recommendations(user_id=1, n=3)
+        assert len(recs) > 0
 
 
 def test_get_recommendations_known_user(model_dir: str) -> None:

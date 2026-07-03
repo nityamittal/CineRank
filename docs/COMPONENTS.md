@@ -133,8 +133,13 @@ from memory. Three public methods:
   proxy for popularity: heavily-rated movies develop larger vectors),
   optionally filtered by genre.
 
-If the model files don't exist, it initializes empty with `loaded = False`
-and the API reports `"degraded"` on `/health` instead of crashing.
+If the model files don't exist yet (training still running), it initializes
+empty with `loaded = False` and the API reports `"degraded"` on `/health`
+instead of crashing. Every public method (and `/health`) calls
+`ensure_loaded()`, which re-checks the disk at most once every 10 seconds —
+so the API picks the model up automatically the moment training finishes,
+and likewise after any later retraining into an empty dir. No restart
+required.
 
 ### `utils.py`
 
@@ -182,7 +187,7 @@ Pydantic models for every request/response. Validation is declarative —
 
 ## `tests/`
 
-31 tests, all runnable with **no services**: external dependencies are
+32 tests, all runnable with **no services**: external dependencies are
 replaced by small in-file fakes (`MockRedis`, `MockModel`, `MockProducer`,
 `FakeRedis` + `FakePipeline`) rather than a mocking framework, so the test
 files double as documentation of each interface.
@@ -190,7 +195,7 @@ files double as documentation of each interface.
 | File | Covers |
 |------|--------|
 | `test_api.py` | Every endpoint via FastAPI's `TestClient`, including validation failures (422s), unknown-user fallback, and 404s |
-| `test_model.py` | Model loading (present and missing artifacts), recommendation/similarity/popularity logic against a tiny fixture model, cosine-similarity math |
+| `test_model.py` | Model loading (present and missing artifacts), auto-reload when artifacts appear after startup, recommendation/similarity/popularity logic against a tiny fixture model, cosine-similarity math |
 | `test_processor.py` | Feature extraction: all Redis keys written, 20-item list cap, genre counting, average-rating math, per-user isolation |
 | `test_producer.py` | Event JSON serialization, key encoding, CSV loading, `--limit`, missing-file handling |
 

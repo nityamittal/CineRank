@@ -49,6 +49,9 @@ class MockModel:
         self.metadata = {"n_users": 100, "n_items": 50, "n_components": 10}
         self.user_map = {1: 0, 2: 1, 3: 2}
 
+    def ensure_loaded(self) -> bool:
+        return self.loaded
+
     def get_recommendations(self, user_id: int, n: int = 10, exclude_seen: bool = True) -> list[dict]:
         if user_id in self.user_map:
             return [

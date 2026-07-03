@@ -42,6 +42,13 @@ head -3 ml-32m/ratings.csv
 
 The folder is gitignored — the dataset never gets committed.
 
+> **Short on disk or bandwidth?** The
+> [ml-latest-small](https://grouplens.org/datasets/movielens/latest/)
+> dataset (100k ratings, ~3 MB) has the **exact same schema** — drop its
+> `ratings.csv` and `movies.csv` into `ml-32m/` and every command below
+> works unchanged. Training takes about a second instead of minutes. It's
+> ideal for a first run; switch to 32M when you want the full-scale model.
+
 ## 2. Environment variables
 
 Copy the template (the defaults work out of the box for Docker):
@@ -75,9 +82,11 @@ What happens, in order (healthchecks enforce this ordering):
 4. **producer** starts replaying 100,000 ratings into Kafka.
 5. **processor** consumes them and writes user features to Redis. Watch its
    logs for lines like `Processed 40000 events (0 errors) — 3800 events/sec`.
-6. **api** starts serving on port 8000. If it started before training
-   finished, it logs a warning and serves in degraded mode — restart it
-   after training completes (`docker-compose restart api`).
+6. **api** starts serving on port 8000. If it comes up before training has
+   finished, it serves in degraded mode (popular-movie fallbacks) and
+   **automatically loads the model within ~10 seconds of training
+   completing** — no restart needed. Watch `/health` flip from
+   `"degraded"` to `"ok"`.
 
 Then verify (see step 3 below).
 
@@ -197,7 +206,7 @@ services**:
 pip install -r requirements-test.txt -r api/requirements.txt \
             -r recommendation_engine/requirements.txt
 pytest tests/ -v
-# ======================== 31 passed ========================
+# ======================== 32 passed ========================
 ```
 
 ---
@@ -207,7 +216,7 @@ pytest tests/ -v
 | Symptom | Likely cause / fix |
 |---------|-------------------|
 | Producer logs `ratings.csv not found` | The `ml-32m/` folder isn't at the project root (Docker mounts it read-only at `/data/ml-32m`) |
-| API `/health` says `"degraded"`, `model_loaded: false` | Training hasn't finished yet, or the API can't see the model dir. Docker: wait for `cinerank-rec-engine` to exit, then `docker-compose restart api`. Local: check `MODEL_DIR` points at the folder containing `user_factors.npy` |
+| API `/health` says `"degraded"`, `model_loaded: false` | Training hasn't finished yet — the API re-checks for the model every ~10 s and recovers on its own once `cinerank-rec-engine` exits. If it never recovers, check `MODEL_DIR` points at the folder containing `user_factors.npy` |
 | `Kafka not ready, retrying in 2s...` forever | Kafka can take ~30 s on first boot. If it persists, check `docker-compose logs kafka` — often a stale volume; `docker-compose down -v` resets everything |
 | `/user/{id}/profile` returns 404 | The stream processor hasn't processed any events for that user yet — is the producer running? Did you pick a user id that appears in the replayed slice? |
 | Port already in use (8000/9092/6379/5432) | Another local service owns the port — stop it or change the port mapping in `docker-compose.yml` |

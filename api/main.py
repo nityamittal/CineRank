@@ -132,10 +132,13 @@ async def health() -> HealthResponse:
         except redis.ConnectionError:
             pass
 
+    # ensure_loaded retries disk if training finished after API startup
+    model_ok = rec_model.ensure_loaded() if rec_model else False
+
     return HealthResponse(
-        status="ok" if redis_ok and rec_model and rec_model.loaded else "degraded",
+        status="ok" if redis_ok and model_ok else "degraded",
         redis_connected=redis_ok,
-        model_loaded=rec_model.loaded if rec_model else False,
+        model_loaded=model_ok,
         model_info=rec_model.metadata if rec_model else {},
     )
 
