@@ -38,7 +38,12 @@ def seed_movies(conn: psycopg2.extensions.connection, movies_path: str) -> int:
     df.columns = [c.strip().lower() for c in df.columns]
     df.rename(columns={"movieid": "movie_id"}, inplace=True)
 
-    rows = list(df[["movie_id", "title", "genres"]].itertuples(index=False, name=None))
+    # psycopg2 cannot adapt numpy scalar types (numpy.int64 etc.), which is
+    # what pandas yields — cast to native Python types before building rows.
+    rows = [
+        (int(r.movie_id), str(r.title), str(r.genres))
+        for r in df[["movie_id", "title", "genres"]].itertuples(index=False)
+    ]
     logger.info("Inserting %d movies...", len(rows))
 
     with conn.cursor() as cur:
@@ -79,8 +84,15 @@ def seed_ratings(
         inplace=True,
     )
 
+    # psycopg2 cannot adapt numpy scalar types, so cast to native Python
+    # types up front (int for ids/timestamps, float for ratings).
+    df["user_id"] = df["user_id"].astype(int)
+    df["movie_id"] = df["movie_id"].astype(int)
+    df["rating"] = df["rating"].astype(float)
+    df["timestamp"] = df["timestamp"].astype(int)
+
     # Insert unique users first
-    unique_users = sorted(df["user_id"].unique())
+    unique_users = sorted(int(u) for u in df["user_id"].unique())
     logger.info("Inserting %d unique users...", len(unique_users))
     with conn.cursor() as cur:
         execute_values(
@@ -99,11 +111,12 @@ def seed_ratings(
     with conn.cursor() as cur:
         for start in range(0, total, batch_size):
             batch = df.iloc[start : start + batch_size]
-            rows = list(
-                batch[["user_id", "movie_id", "rating", "timestamp"]].itertuples(
-                    index=False, name=None
+            rows = [
+                (int(r.user_id), int(r.movie_id), float(r.rating), int(r.timestamp))
+                for r in batch[["user_id", "movie_id", "rating", "timestamp"]].itertuples(
+                    index=False
                 )
-            )
+            ]
             execute_values(
                 cur,
                 "INSERT INTO interactions (user_id, movie_id, rating, timestamp) VALUES %s",

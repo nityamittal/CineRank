@@ -8,3 +8,7 @@ dist/
 build/
 .pytest_cache/
 *.npy
+
+# Redis snapshot files
+dump.rdb
+**/dump.rdb
