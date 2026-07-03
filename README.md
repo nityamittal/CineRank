@@ -10,6 +10,18 @@ A fully working, deployable real-time movie recommendation system that ingests u
 
 ---
 
+## Documentation
+
+New to the project (or to Kafka/Redis/recommender systems in general)? Start here:
+
+| Guide | What it covers |
+|-------|----------------|
+| [docs/BEGINNER_GUIDE.md](docs/BEGINNER_GUIDE.md) | The concepts from scratch: what Kafka, Redis, and SVD are, why each is used, and a step-by-step trace of one rating event through the whole system |
+| [docs/RUNNING_LOCALLY.md](docs/RUNNING_LOCALLY.md) | Hands-on setup walkthrough with expected output at every step, verification commands, and a troubleshooting table |
+| [docs/COMPONENTS.md](docs/COMPONENTS.md) | File-by-file code tour, the Redis key schema, model artifacts, and test suite layout |
+
+---
+
 ## Architecture
 
 ```
@@ -54,6 +66,9 @@ git clone https://github.com/yourusername/cinerank.git && cd cinerank
 
 # 2. Download MovieLens 32M dataset into ml-32m/ (if not present)
 # https://grouplens.org/datasets/movielens/32m/
+
+# 2b. Create your local config from the template
+cp .env.example .env
 
 # 3. Start infrastructure
 docker-compose up -d
@@ -241,7 +256,8 @@ curl http://localhost:8000/user/1/profile
 ```
 cinerank/
 ├── docker-compose.yml          # Full infrastructure + app stack
-├── .env                        # Environment variables
+├── .env.example                # Environment variable template (copy to .env)
+├── docs/                       # Beginner guide, setup walkthrough, code tour
 ├── api/                        # FastAPI serving layer
 │   ├── main.py                 # Endpoints and middleware
 │   ├── schemas.py              # Pydantic models

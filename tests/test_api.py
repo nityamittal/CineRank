@@ -93,20 +93,23 @@ class MockProducer:
 
 @pytest.fixture
 def client():
-    """Create a test client with mocked dependencies."""
+    """Create a test client with mocked dependencies.
+
+    TestClient is used WITHOUT a `with` block on purpose: entering the
+    context manager runs the app's lifespan handler, which would try to
+    connect to real Redis/Kafka and overwrite the mocks below.
+    """
     mock_redis = MockRedis()
     mock_model = MockModel()
     mock_producer = MockProducer()
 
-    # Patch the module-level globals before importing
     import api.main as api_main
     api_main.redis_client = mock_redis
     api_main.rec_model = mock_model
     api_main.kafka_producer = mock_producer
 
     from fastapi.testclient import TestClient
-    with TestClient(api_main.app) as c:
-        yield c
+    yield TestClient(api_main.app)
 
 
 def test_health(client) -> None:

@@ -1,7 +1,6 @@
 """Utility functions for the recommendation engine."""
 
 import numpy as np
-import pandas as pd
 
 
 def parse_genres(genres_str: str) -> list[str]:
@@ -50,6 +49,10 @@ def load_movie_metadata(movies_path: str) -> dict[int, dict[str, str]]:
     Returns:
         Dict mapping movie_id to {"title": str, "genres": str}.
     """
+    # Imported lazily so the API service (which only needs parse_genres and
+    # cosine_similarity_batch at runtime) does not require pandas installed.
+    import pandas as pd
+
     df = pd.read_csv(movies_path)
     df.columns = [c.strip().lower() for c in df.columns]
     df.rename(columns={"movieid": "movie_id"}, inplace=True)

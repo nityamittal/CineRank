@@ -5,18 +5,25 @@ import logging
 import os
 import sys
 import time
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
 import redis
 from confluent_kafka import Producer, KafkaException
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-# Add recommendation_engine to path for imports
-# In Docker: mounted at /app/recommendation_engine; locally: ../recommendation_engine
+# Make imports work both in Docker (WORKDIR /app) and when this module is
+# imported as `api.main` from the repo root (e.g. by pytest):
+# - the api/ directory itself, so `schemas` resolves
+# - recommendation_engine/, so `model` resolves
+#   (in Docker it is mounted at /app/recommendation_engine; locally it is ../recommendation_engine)
+_api_dir = os.path.dirname(os.path.abspath(__file__))
 _rec_engine_paths = [
-    os.path.join(os.path.dirname(__file__), "recommendation_engine"),
-    os.path.join(os.path.dirname(__file__), "..", "recommendation_engine"),
+    os.path.join(_api_dir, "recommendation_engine"),
+    os.path.join(_api_dir, "..", "recommendation_engine"),
 ]
+sys.path.insert(0, _api_dir)
 for _p in _rec_engine_paths:
     if os.path.isdir(_p):
         sys.path.insert(0, _p)
@@ -40,39 +47,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-app = FastAPI(
-    title="CineRank",
-    description="Real-Time Personalized Movie Recommendation API",
-    version="1.0.0",
-)
-
-# CORS for local development
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Global state
+# Global state, populated by the lifespan handler on startup
 redis_client: redis.Redis | None = None
 kafka_producer: Producer | None = None
 rec_model: RecommendationModel | None = None
 
 
-@app.middleware("http")
-async def add_timing_header(request, call_next):
-    """Add X-Response-Time-Ms header to every response."""
-    start = time.perf_counter()
-    response = await call_next(request)
-    duration = (time.perf_counter() - start) * 1000
-    response.headers["X-Response-Time-Ms"] = f"{duration:.2f}"
-    return response
-
-
-@app.on_event("startup")
-async def startup() -> None:
-    """Initialize connections to Redis, Kafka, and load the model."""
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Initialize connections on startup, clean up on shutdown."""
     global redis_client, kafka_producer, rec_model
 
     # Connect to Redis
@@ -102,15 +85,40 @@ async def startup() -> None:
 
     logger.info("CineRank API startup complete.")
 
+    yield
 
-@app.on_event("shutdown")
-async def shutdown() -> None:
-    """Flush Kafka producer and close Redis."""
+    # Shutdown: flush Kafka producer and close Redis
     if kafka_producer:
         kafka_producer.flush(timeout=5)
     if redis_client:
         redis_client.close()
     logger.info("CineRank API shutdown complete.")
+
+
+app = FastAPI(
+    title="CineRank",
+    description="Real-Time Personalized Movie Recommendation API",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+# CORS for local development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.middleware("http")
+async def add_timing_header(request, call_next):
+    """Add X-Response-Time-Ms header to every response."""
+    start = time.perf_counter()
+    response = await call_next(request)
+    duration = (time.perf_counter() - start) * 1000
+    response.headers["X-Response-Time-Ms"] = f"{duration:.2f}"
+    return response
 
 
 @app.get("/health", response_model=HealthResponse)
