@@ -21,6 +21,8 @@ for _p in _rec_engine_paths:
     if os.path.isdir(_p):
         sys.path.insert(0, _p)
         break
+# Allow `from schemas import ...` to resolve when imported as api.main
+sys.path.insert(0, os.path.dirname(__file__))
 from model import RecommendationModel
 
 from schemas import (
@@ -75,30 +77,35 @@ async def startup() -> None:
     """Initialize connections to Redis, Kafka, and load the model."""
     global redis_client, kafka_producer, rec_model
 
+    # Any dependency already set (e.g. injected by tests) is left untouched.
+
     # Connect to Redis
-    redis_host = os.environ.get("REDIS_HOST", "localhost")
-    redis_port = int(os.environ.get("REDIS_PORT", 6379))
-    try:
-        redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
-        redis_client.ping()
-        logger.info("Connected to Redis at %s:%d", redis_host, redis_port)
-    except redis.ConnectionError as exc:
-        logger.warning("Redis not available: %s. Continuing without cache.", exc)
-        redis_client = None
+    if redis_client is None:
+        redis_host = os.environ.get("REDIS_HOST", "localhost")
+        redis_port = int(os.environ.get("REDIS_PORT", 6379))
+        try:
+            redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
+            redis_client.ping()
+            logger.info("Connected to Redis at %s:%d", redis_host, redis_port)
+        except redis.ConnectionError as exc:
+            logger.warning("Redis not available: %s. Continuing without cache.", exc)
+            redis_client = None
 
     # Load recommendation model
-    model_dir = os.environ.get("MODEL_DIR", "./models")
-    rec_model = RecommendationModel(model_dir=model_dir, redis_client=redis_client)
+    if rec_model is None:
+        model_dir = os.environ.get("MODEL_DIR", "./models")
+        rec_model = RecommendationModel(model_dir=model_dir, redis_client=redis_client)
 
     # Create Kafka producer
-    kafka_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-    try:
-        kafka_producer = Producer({"bootstrap.servers": kafka_servers})
-        kafka_producer.list_topics(timeout=5)
-        logger.info("Connected to Kafka at %s", kafka_servers)
-    except KafkaException as exc:
-        logger.warning("Kafka not available: %s. Event ingestion disabled.", exc)
-        kafka_producer = None
+    if kafka_producer is None:
+        kafka_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+        try:
+            kafka_producer = Producer({"bootstrap.servers": kafka_servers})
+            kafka_producer.list_topics(timeout=5)
+            logger.info("Connected to Kafka at %s", kafka_servers)
+        except KafkaException as exc:
+            logger.warning("Kafka not available: %s. Event ingestion disabled.", exc)
+            kafka_producer = None
 
     logger.info("CineRank API startup complete.")
 
